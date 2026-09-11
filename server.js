@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const dns = require("dns");
 
 const rateLimiter = require("./middleware/rateLimiter");
 const connectDB = require("./config/db");
@@ -17,10 +18,11 @@ const PORT = process.env.PORT || 5000;
 // ================================
 // CORS
 // ================================
-
+dns.setServers(["8.8.8.8"]);
 app.use(
     cors({
-        origin: "http://localhost:5173",
+        origin: ["http://localhost:5173",
+                "https://account-management-system-frontend.vercel.app"],
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization"],
     })
