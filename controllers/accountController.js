@@ -2,10 +2,44 @@ const Account = require("../models/Account");
 const generateAccountNumber = require("../utils/generateAccountNumber");
 const Transaction = require("../models/Transaction");
 
+// ================= CREATE ACCOUNT =================
+
 const createAccount = async (req, res) => {
   try {
     const userId = req.user.userId;
 
+    const {
+      initialDeposit,
+      phone,
+      dateOfBirth,
+      address,
+      city,
+      state,
+    } = req.body;
+
+    // Required fields validation
+    if (
+      !phone ||
+      !dateOfBirth ||
+      !address ||
+      !city ||
+      !state
+    ) {
+      return res.status(400).json({
+        message: "All account details are required",
+      });
+    }
+
+    // Initial deposit validation
+    const deposit = Number(initialDeposit);
+
+    if (isNaN(deposit) || deposit < 0) {
+      return res.status(400).json({
+        message: "Initial deposit must be a valid amount",
+      });
+    }
+
+    // Check existing account
     const existingAccount = await Account.findOne({ userId });
 
     if (existingAccount) {
@@ -14,13 +48,31 @@ const createAccount = async (req, res) => {
       });
     }
 
+    // Generate unique account number
     const accountNumber = await generateAccountNumber();
 
+    // Create account
     const account = await Account.create({
       userId,
       accountNumber,
-      balance: 0,
+      balance: deposit,
+      phone,
+      dateOfBirth,
+      address,
+      city,
+      state,
     });
+
+    // Create initial deposit transaction
+    if (deposit > 0) {
+      await Transaction.create({
+        userId,
+        accountId: account._id,
+        type: "deposit",
+        amount: deposit,
+        description: "Initial deposit",
+      });
+    }
 
     res.status(201).json({
       message: "Account created successfully",
@@ -33,6 +85,9 @@ const createAccount = async (req, res) => {
     });
   }
 };
+
+// ================= GET BALANCE =================
+
 const getBalance = async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -57,18 +112,20 @@ const getBalance = async (req, res) => {
   }
 };
 
+// ================= DEPOSIT MONEY =================
+
 const depositMoney = async (req, res) => {
   try {
     const { amount } = req.body;
 
-    // Amount validation
-    if (!amount || amount <= 0) {
+    const depositAmount = Number(amount);
+
+    if (isNaN(depositAmount) || depositAmount <= 0) {
       return res.status(400).json({
         message: "Amount must be greater than 0",
       });
     }
 
-    // User ka account find karo
     const account = await Account.findOne({
       userId: req.user.userId,
     });
@@ -79,16 +136,16 @@ const depositMoney = async (req, res) => {
       });
     }
 
-    // Balance increase
-    account.balance += amount;
+    // Increase balance
+    account.balance += depositAmount;
     await account.save();
 
-    // Transaction record
+    // Create transaction
     await Transaction.create({
       userId: req.user.userId,
       accountId: account._id,
       type: "deposit",
-      amount: amount,
+      amount: depositAmount,
       description: "Money deposited",
     });
 
@@ -104,11 +161,15 @@ const depositMoney = async (req, res) => {
   }
 };
 
+// ================= WITHDRAW MONEY =================
+
 const withdrawMoney = async (req, res) => {
   try {
     const { amount } = req.body;
 
-    if (!amount || amount <= 0) {
+    const withdrawAmount = Number(amount);
+
+    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
       return res.status(400).json({
         message: "Amount must be greater than 0",
       });
@@ -124,20 +185,23 @@ const withdrawMoney = async (req, res) => {
       });
     }
 
-    if (account.balance < amount) {
+    // Balance check
+    if (account.balance < withdrawAmount) {
       return res.status(400).json({
         message: "Insufficient balance",
       });
     }
 
-    account.balance -= amount;
+    // Decrease balance
+    account.balance -= withdrawAmount;
     await account.save();
 
+    // Create transaction
     await Transaction.create({
       userId: req.user.userId,
       accountId: account._id,
       type: "withdraw",
-      amount: amount,
+      amount: withdrawAmount,
       description: "Money withdrawn",
     });
 
@@ -152,11 +216,21 @@ const withdrawMoney = async (req, res) => {
     });
   }
 };
+
+// ================= TRANSFER MONEY =================
+
 const transferMoney = async (req, res) => {
   try {
     const { receiverAccountNumber, amount } = req.body;
 
-    if (!receiverAccountNumber || !amount || amount <= 0) {
+    const transferAmount = Number(amount);
+
+    // Validation
+    if (
+      !receiverAccountNumber ||
+      isNaN(transferAmount) ||
+      transferAmount <= 0
+    ) {
       return res.status(400).json({
         message: "Receiver account number and valid amount are required",
       });
@@ -185,49 +259,63 @@ const transferMoney = async (req, res) => {
     }
 
     // Same account check
-    if (senderAccount._id.toString() === receiverAccount._id.toString()) {
+    if (
+      senderAccount._id.toString() === receiverAccount._id.toString()
+    ) {
       return res.status(400).json({
         message: "Cannot transfer to your own account",
       });
     }
 
     // Balance check
-    if (senderAccount.balance < amount) {
+    if (senderAccount.balance < transferAmount) {
       return res.status(400).json({
         message: "Insufficient balance",
       });
     }
 
-    // Money transfer
-    senderAccount.balance -= amount;
-    receiverAccount.balance += amount;
+    // Update sender balance
+    await Account.updateOne(
+      { _id: senderAccount._id },
+      { $inc: { balance: -transferAmount } }
+    );
 
-    await senderAccount.save();
-    await receiverAccount.save();
+    // Update receiver balance
+    await Account.updateOne(
+      { _id: receiverAccount._id },
+      { $inc: { balance: transferAmount } }
+    );
 
     // Sender transaction
     await Transaction.create({
-      userId: req.user.userId,
+      userId: senderAccount.userId,
+      accountId: senderAccount._id,
       senderAccount: senderAccount._id,
       receiverAccount: receiverAccount._id,
       type: "transfer",
-      amount: amount,
+      amount: transferAmount,
       description: `Transferred to ${receiverAccountNumber}`,
     });
 
     // Receiver transaction
     await Transaction.create({
       userId: receiverAccount.userId,
+      accountId: receiverAccount._id,
       senderAccount: senderAccount._id,
       receiverAccount: receiverAccount._id,
       type: "transfer",
-      amount: amount,
+      amount: transferAmount,
       description: `Received from ${senderAccount.accountNumber}`,
     });
 
+    // Get updated sender balance
+    const updatedSenderAccount = await Account.findById(
+      senderAccount._id
+    );
+
     res.json({
       message: "Money transferred successfully",
-      balance: senderAccount.balance,
+      balance: updatedSenderAccount.balance,
     });
   } catch (error) {
     res.status(500).json({
@@ -236,6 +324,9 @@ const transferMoney = async (req, res) => {
     });
   }
 };
+
+// ================= GET TRANSFERS =================
+
 const getTransfers = async (req, res) => {
   try {
     const transactions = await Transaction.find({
@@ -290,6 +381,10 @@ const getTransfers = async (req, res) => {
   }
 };
 
+// ================= TRANSACTION HISTORY =================
+
+// ================= TRANSACTION HISTORY =================
+
 const getTransactionHistory = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -322,14 +417,20 @@ const getTransactionHistory = async (req, res) => {
     }
 
     const transactions = await Transaction.find(filter)
+      .populate("senderAccount", "accountNumber")
+      .populate("receiverAccount", "accountNumber")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
+
+    const totalTransactions = await Transaction.countDocuments(filter);
 
     res.json({
       message: "Transaction history fetched successfully",
       page,
       limit,
+      totalTransactions,
+      totalPages: Math.ceil(totalTransactions / limit),
       transactions,
     });
   } catch (error) {
@@ -339,10 +440,40 @@ const getTransactionHistory = async (req, res) => {
     });
   }
 };
+// ================= GET ACCOUNT DETAILS =================
 
+const getAccountDetails = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const account = await Account.findOne({ userId }).populate(
+      "userId",
+      "fullName email"
+    );
+
+    if (!account) {
+      return res.status(404).json({
+        message: "Account not found",
+      });
+    }
+
+    res.json({
+      message: "Account details fetched successfully",
+      account,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch account details",
+      error: error.message,
+    });
+  }
+};
+
+// ================= EXPORT =================
 
 module.exports = {
   createAccount,
+  getAccountDetails,
   getBalance,
   depositMoney,
   withdrawMoney,

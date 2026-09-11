@@ -12,9 +12,14 @@ const userSchema = new mongoose.Schema({
         unique: true
     },
 
+
     password: {
         type: String,
         required: true
+    },
+     profilePhoto: {
+      type: String,
+      default: "",
     },
 
     role: {
@@ -22,7 +27,7 @@ const userSchema = new mongoose.Schema({
         enum: ["user", "admin"],
         default: "user"
     },
-
+    
     isActive: {
         type: Boolean,
         default: true

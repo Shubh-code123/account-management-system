@@ -17,6 +17,31 @@ const accountSchema = new mongoose.Schema(
         balance: {
             type: Number,
             default: 0
+        },
+
+        phone: {
+            type: String,
+            required: true
+        },
+
+        dateOfBirth: {
+            type: Date,
+            required: true
+        },
+
+        address: {
+            type: String,
+            required: true
+        },
+
+        city: {
+            type: String,
+            required: true
+        },
+
+        state: {
+            type: String,
+            required: true
         }
     },
     {

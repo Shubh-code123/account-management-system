@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const Account = require("../models/Account");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
@@ -78,7 +79,7 @@ const loginUser = async (req, res) => {
             });
         }
 
-        // Compare entered password with hashed password
+        // Compare password
         const isPasswordValid = await bcrypt.compare(
             password,
             user.password
@@ -105,7 +106,13 @@ const loginUser = async (req, res) => {
         // Send response
         res.status(200).json({
             message: "Login successful",
-            token
+            token,
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role
+            }
         });
 
     } catch (error) {
@@ -116,9 +123,15 @@ const loginUser = async (req, res) => {
     }
 };
 
+
+// ================= GET PROFILE =================
+
 const getProfile = async (req, res) => {
     try {
-        const user = await User.findById(req.user.userId)
+        const userId = req.user.userId;
+
+        // Find user
+        const user = await User.findById(userId)
             .select("-password");
 
         if (!user) {
@@ -127,12 +140,18 @@ const getProfile = async (req, res) => {
             });
         }
 
-        res.json({
+        // Find account of this user
+        const account = await Account.findOne({ userId });
+
+        res.status(200).json({
             message: "Profile fetched successfully",
-            user
+            user,
+            account
         });
 
     } catch (error) {
+        console.log("Get Profile Error:", error);
+
         res.status(500).json({
             message: "Failed to fetch profile",
             error: error.message
@@ -140,15 +159,25 @@ const getProfile = async (req, res) => {
     }
 };
 
+
+// ================= UPDATE PROFILE =================
+
 const updateProfile = async (req, res) => {
     try {
-        const { fullName, email } = req.body;
+        const userId = req.user.userId;
 
-        const user = await User.findByIdAndUpdate(
-            req.user.userId,
-            { fullName, email },
-            { new: true }
-        ).select("-password");
+        const {
+            fullName,
+            phone,
+            dateOfBirth,
+            address,
+            city,
+            state,
+            profilePhoto
+        } = req.body;
+
+        // Find user
+        const user = await User.findById(userId);
 
         if (!user) {
             return res.status(404).json({
@@ -156,12 +185,60 @@ const updateProfile = async (req, res) => {
             });
         }
 
-        res.json({
+        // Update user details
+        if (fullName) {
+            user.fullName = fullName;
+        }
+
+        if (profilePhoto !== undefined) {
+            user.profilePhoto = profilePhoto;
+        }
+
+        await user.save();
+
+        // Find account
+        const account = await Account.findOne({ userId });
+
+        if (account) {
+
+            if (phone) {
+                account.phone = phone;
+            }
+
+            if (dateOfBirth) {
+                account.dateOfBirth = dateOfBirth;
+            }
+
+            if (address) {
+                account.address = address;
+            }
+
+            if (city) {
+                account.city = city;
+            }
+
+            if (state) {
+                account.state = state;
+            }
+
+            await account.save();
+        }
+
+        // Get updated data
+        const updatedUser = await User.findById(userId)
+            .select("-password");
+
+        const updatedAccount = await Account.findOne({ userId });
+
+        res.status(200).json({
             message: "Profile updated successfully",
-            user
+            user: updatedUser,
+            account: updatedAccount
         });
 
     } catch (error) {
+        console.log("Update Profile Error:", error);
+
         res.status(500).json({
             message: "Failed to update profile",
             error: error.message
